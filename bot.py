@@ -1,276 +1,192 @@
 import io
 import os
+import re
 import telebot
 from telebot import types
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageOps
+import requests
 from flask import Flask
 import threading
 
-API_TOKEN = '8974775722:AAEdkBUxx02cwzLLzGT6Fa5hqSWtveqGz6A'  # Token kee as galchi
+# ==================== CONFIGURATION ====================
+API_TOKEN = '8974775722:AAEdkBUxx02cwzLLzGT6Fa5hqSWtveqGz6A'  # Token Bot keetii as galchi
+ADMIN_CHAT_ID = 123456789  # Telegram Chat ID kee (Elias) lakkoofsa qofa
+CHANNEL_USERNAME = '@A_ToolsX'  # Maqaa Chanaalii kee force join gochisiistu
+
 bot = telebot.TeleBot(API_TOKEN)
 
-# 1. DICTIONARY LOCALIZATION (Afaan Saddan + Ergaa Busy/Outage)
-MESSAGES = {
-    'en': {
-        'choose_lang': "🌐 <b>Choose your language</b>\nTap a button below.",
-        'lang_set': "✅ Language set to English.",
-        'pick_template': "🎨 First, pick the template your processed IDs will use:",
-        'pick_pkg': "📦 <b>Pick a package to top up</b>\nTap one to continue.",
-        'pay_instruction': "🏦 <b>Pick an account to pay {price} ETB to:</b>",
-        'send_tx': "💵 <b>Make Payment</b>\n\nPlease transfer <b>{price} ETB</b> to <b>Elias Fikadu Mulata</b> via:\n• {method}\n\nAfter paying, please copy and send the <b>Transaction ID</b> here.",
-        'tx_success': "🎉 <b>Payment Verified!</b>\nAdded +{credits} credits to your account.",
-        'system_busy': "📢 <b>Our system experienced a technical outage or is currently BUSY.</b>\n\n❌ <b>Failed Jobs:</b> While credits were not deducted for these failed jobs, we have credited your account with compensation credits.\n⏳ <b>Delayed Jobs:</b> Jobs that took longer than 2 minutes will have their credits fully refunded.\n\n🙏 We sincerely apologize for the inconvenience and thank you for your patience!",
-        'send_front': "📥 Please send the <b>Front Side</b> image of the ID.",
-        'send_back': "📥 Excellent. Now please send the <b>Back Side</b> image of the ID.",
-        'processing': "⚙️ Processing your ID using Template {tmpl}... Please wait.",
-        'no_credit': "⚠️ You don't have enough credits! Please type /topup to recharge."
-    },
-    'am': {
-        'choose_lang': "🌐 <b>ቋንቋዎን ይምረጡ</b>\nከታች ካሉት አንዱን ይምረጡ።",
-        'lang_set': "✅ ቋንቋው ወደ አማርኛ ተቀይሯል።",
-        'pick_template': "🎨 መጀመሪያ የተቀነባበሩ መታወቂያዎችዎ የሚጠቀሙበትን ቴምፕሌት ይምረጡ፡",
-        'pick_pkg': "📦 <b>ለመሙላት ጥቅል ይምረጡ</b>\nለመቀጠል አንዱን ይጫኑ።",
-        'pay_instruction': "🏦 <b>የ {price} ETB ክፍያ ለመፈጸም ሂሳብ ይምረጡ፡</b>",
-        'send_tx': "💵 <b>ክፍያ ይፈጽሙ</b>\n\nእባክዎ <b>{price} ETB</b> ለ <b>Elias Fikadu Mulata</b> በዚህ ይላኩ፡\n• {method}\n\nከከፈሉ በኋላ፣ እባክዎ የ <b>Transaction ID</b> እዚህ ይቅዱ እና ይላኩ።",
-        'tx_success': "🎉 <b>ክፍያዎ ተረጋግጧል!</b>\n+{credits} ክሬዲት ወደ አካውንትዎ ተጨምሯል።",
-        'system_busy': "📢 <b>ዛሬ ባጋጠመን የሲስተም መቋረጥ (Busy/Outage) ምክንያት ስራዎችን በወቅቱ ማስተናገድ አልተቻለም።</b>\n\n❌ <b>ሳይሳኩ የቀሩ ስራዎች:</b> ለእነዚህ ስራዎች ክሬዲት ያልተቆረጠ ሲሆን፣ ለደረሰው መስተጓጎል የካሳ ክሬዲት (compensation credit) ወደ አካውንትዎ አስገብተናል።\n⏳ <b>የዘገዩ ስራዎች:</b> ለመስራት ከ 2 ደቂቃ በላይ የፈጁ ስራዎች በሙሉ የተቆረጠው ክሬዲት ሙሉ በሙሉ ይመለሳል።\n\n🙏 ለተፈጠረው መስተጓጎል ከልብ ይቅርታ እየጠየቅን፣ ለትዕግስትዎ እናመሰግናለን!",
-        'send_front': "📥 እባክዎ የመታወቂያውን <b>የፊት ገጽ (Front Side)</b> ፎቶ ይላኩ።",
-        'send_back': "📥 በጣም ጥሩ። አሁን ደግሞ የመታወቂያውን <b>የጀርባ ገጽ (Back Side)</b> ፎቶ ይላኩ።",
-        'processing': "⚙️ መታወቂያዎ በቴምፕሌት {tmpl} እየተዘጋጀ ነው... እባክዎ ይጠብቁ።",
-        'no_credit': "⚠️ በቂ ክሬዲት የለዎትም! እባክዎ ለመሙላት /topup ይፃፉ።"
-    },
-    'om': {
-        'choose_lang': "🌐 <b>Afaan keessan filadhaa</b>\nFilannoowwan armaan gadii keessaa tokko tuqaa.",
-        'lang_set': "✅ Afaan keessan gara Afaan Oromootti jijjiirameera.",
-        'pick_template': "🎨 Jalqaba, template ID-n keessan itti hojjetamu filadhaa:",
-        'pick_pkg': "📦 <b>Kireditii guuttachuuf package filadhaa</b>\nItti fufuuf tokko tuqaa.",
-        'pay_instruction': "🏦 <b>Kafaltii {price} ETB raawwachuuf herrega baankii filadhaa:</b>",
-        'send_tx': "💵 <b>Kafaltii Raawwadhaa</b>\n\nMaaloo <b>{price} ETB</b> gara <b>Elias Fikadu Mulata</b> kanaan ergaa:\n• {method}\n\nErga kaffaltanii booda, <b>Transaction ID</b> dhufe asirratti nuuf ergaa.",
-        'tx_success': "🎉 <b>Kafaltiin Keessan Mirkanaaddheera!</b>\n+{credits} credits herrega keessanitti dabalameera.",
-        'system_busy': "📢 <b>Har'a rakkoo siistamii (system busy/outage) keenya irra mudateen adeemsi hojii gufatee ture.</b>\n\n❌ <b>Hojiiwwan gufatan:</b> Hojiiwwan kanaan dura gufatan kireditiin irraa hin muramne. Ta'us, gufannaa uumameef kireditii beenyaa (compensation credit) account keessaniif ni kennina.\n⏳ <b>Hojiiwwan turan:</b> Hojii process ta'uuf daqiiqaa 2 ol fudhate mundaafis kireditiin irraa murame ni deebi'a.\n\n🙏 Rakkoo uumameef dhiifama gaafachaa, obsa keessaniif guddaa isin galateeffanna!",
-        'send_front': "📥 Maaloo suuraa ID keessanii kan <b>Fuula Duraa (Front Side)</b> ergaa.",
-        'send_back': "📥 Baay'ee gaariidha. Amma ammoo suuraa ID keessanii kan <b>Gala Dugdaa (Back Side)</b> ergaa.",
-        'processing': "⚙️ ID keessan gosa Template {tmpl} kanaan qulqullinaan ijaaramaa jira... Maaloo obsaan eegaa.",
-        'no_credit': "⚠️ Kireditii gahaa hin qabdhan! Maaloo kireditii guuttachuuf /topup jedhaa."
-    }
-}
+user_lang = {}             
+user_balances = {}         
+user_states = {}
 
-# CORES DATA STRUCTURES
-user_lang = {}             # {user_id: 'en'/'am'/'om'}
-user_template = {}         # {user_id: 'T-1'/'T-8'}
-user_balances = {}         # {user_id: credits}
-user_states = {}           # {user_id: 'WAITING_FRONT' ykn 'WAITING_BACK'}
-user_images = {}           # {user_id: {'front': Image, 'back': Image}}
-user_pending_payments = {} # {user_id: {'credits': int, 'price': int}}
+# ==================== MAIN KEYBOARD (BAAFATA) ====================
+def get_main_keyboard():
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    markup.add(
+        types.KeyboardButton("📄 Print from PDF"),
+        types.KeyboardButton("📸 Print from Screenshot"),
+        types.KeyboardButton("📦 Bulk Screenshot (auto-match)"),
+        types.KeyboardButton("🔢 Print from OTP"),
+        types.KeyboardButton("🖨️ Group to A4"),
+        types.KeyboardButton("💰 Balance"),
+        types.KeyboardButton("📦 Top Up")
+    )
+    return markup
 
-# INFO KAFFALTII (Account Owner: Elias Fikadu Mulata)
-MY_TELEBIRR = "TeleBirr (Elias Fikadu) • 0913701367"
-MY_CBE = "CBE (Elias Fikadu) • 1000270143788"
+# ==================== CHANAALII CHECK GOCHUU (FORCE JOIN) ====================
+def check_must_join(user_id):
+    try:
+        member = bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        if member.status in ['creator', 'administrator', 'member']:
+            return True
+        return False
+    except Exception:
+        # Yoo bot-in chanaalicha keessatti admin ta'uu baate ykn chanaaliin hin jirre hojii akka hin dhowwineef
+        return True
 
-# SYSTEM BUSY FLAG (Yoo True ta'e bot-ichi tajaajila addaan kuta, kireditii hin hiru)
-SYSTEM_IS_BUSY = False 
+def send_join_message(chat_id):
+    markup = types.InlineKeyboardMarkup()
+    # Chanaalii keetiif liinkii uumuu
+    link = f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"
+    markup.add(types.InlineKeyboardButton("🚀 Join Our Channel", url=link))
+    
+    msg = (
+        f"🚀 **To use this bot, you must join our channel first!**\n\n"
+        f"Maaloo tajaajila kana fayyadamuuf jalqaba chanaalii keenya join godhaa.\n"
+        f"👉 Link: {CHANNEL_USERNAME}"
+    )
+    bot.send_message(chat_id, msg, reply_markup=markup, parse_mode='Markdown')
 
-# --- STEP 1: START & LANGUAGE SELECTION ---
+# ==================== START & LANG COMMANDS ====================
 @bot.message_handler(commands=['start', 'language'])
 def start_bot(message):
     user_id = message.from_user.id
-    user_states[user_id] = 'WAITING_FRONT'
-    user_images[user_id] = {}
     if user_id not in user_balances:
-        user_balances[user_id] = 5  # Mamiltoota haaraaf kireditii 5 bilisaan kennuuf
+        user_balances[user_id] = 2  # Kireditii 2 bilisaan
         
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("English 🇬🇧", callback_data="lang_en"),
-        types.InlineKeyboardButton("አማርኛ 🇪🇹", callback_data="lang_am"),
-        types.InlineKeyboardButton("Afaan Oromoo 🌳", callback_data="lang_om")
+    if not check_must_join(user_id):
+        send_join_message(message.chat.id)
+        return
+        
+    user_lang[user_id] = 'om' # Default Afaan Oromoo
+    bot.send_message(
+        message.chat.id, 
+        "👋 **Baga nagaan dhuftan! Maaloo baafata gadii irratti tajaajila barbaaddan filadhaa.**", 
+        reply_markup=get_main_keyboard(),
+        parse_mode='Markdown'
     )
-    combined_text = f"{MESSAGES['en']['choose_lang']}\n\n{MESSAGES['am']['choose_lang']}\n\n{MESSAGES['om']['choose_lang']}"
-    bot.send_message(message.chat.id, combined_text, reply_markup=markup, parse_mode='HTML')
 
-# Language Callback & STEP 2: TEMPLATE SELECTION
-@bot.callback_query_handler(func=lambda call: call.data.startswith('lang_'))
-def handle_lang_selection(call):
-    user_id = call.from_user.id
-    lang = call.data.split('_')[1]
-    user_lang[user_id] = lang
-    
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, MESSAGES[lang]['lang_set'])
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("🎨 T-1 Small shadow (Classic)", callback_data="tmpl_T-1"),
-        types.InlineKeyboardButton("🎨 T-8 White rectangle (Standard)", callback_data="tmpl_T-8")
-    )
-    bot.send_message(call.message.chat.id, MESSAGES[lang]['pick_template'], reply_markup=markup)
-
-# Template Callback
-@bot.callback_query_handler(func=lambda call: call.data.startswith('tmpl_'))
-def handle_template_selection(call):
-    user_id = call.from_user.id
-    lang = user_lang.get(user_id, 'en')
-    template_type = call.data.split('_')[1]
-    user_template[user_id] = template_type
-    
-    bot.answer_callback_query(call.id)
-    bot.send_message(call.message.chat.id, f"✅ <b>Template: {template_type}</b>\n\n{MESSAGES[lang]['send_front']}", parse_mode='HTML')
-
-# --- STEP 3: SIRNA KAFFALTII (TOP UP) ---
-@bot.message_handler(commands=['topup'])
-def topup_menu(message):
+# ==================== TEXT & MENU BUTTON HANDLERS ====================
+@bot.message_handler(func=lambda message: True)
+def handle_menu_buttons(message):
     user_id = message.from_user.id
-    lang = user_lang.get(user_id, 'en')
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton("7 credits — 200 ETB", callback_data="pkg_7_200"),
-        types.InlineKeyboardButton("18 credits — 500 ETB", callback_data="pkg_18_500"),
-        types.InlineKeyboardButton("37 credits — 900 ETB", callback_data="pkg_37_900")
-    )
-    bot.send_message(message.chat.id, MESSAGES[lang]['pick_pkg'], reply_markup=markup, parse_mode='HTML')
+    text = message.text
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('pkg_'))
-def pack_select(call):
-    user_id = call.from_user.id
-    lang = user_lang.get(user_id, 'en')
-    _, credits, price = call.data.split('_')
-    
-    user_pending_payments[user_id] = {'credits': int(credits), 'price': int(price)}
-    
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton(MY_TELEBIRR, callback_data="pay_tele"),
-        types.InlineKeyboardButton(MY_CBE, callback_data="pay_cbe")
-    )
-    bot.edit_message_text(MESSAGES[lang]['pay_instruction'].format(price=price), call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode='HTML')
+    if not check_must_join(user_id):
+        send_join_message(message.chat.id)
+        return
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith('pay_'))
-def bank_select(call):
-    user_id = call.from_user.id
-    lang = user_lang.get(user_id, 'en')
-    pending = user_pending_payments.get(user_id)
-    
-    if not pending: return
-    
-    method = MY_TELEBIRR if call.data == "pay_tele" else MY_CBE
-    text = MESSAGES[lang]['send_tx'].format(price=pending['price'], method=method)
-    
-    msg = bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode='HTML')
-    bot.register_next_step_handler(msg, verify_tx_id)
+    if text == "💰 Balance":
+        bal = user_balances.get(user_id, 0)
+        bot.send_message(message.chat.id, f"💳 **Kireditii Keessan:** `{bal} credits`", parse_mode='Markdown')
+        
+    elif text == "📦 Top Up":
+        msg = (
+            f"💳 **Kireditii Guuttachuuf:**\n\n"
+            f"Maaloo kaffaltii erga raawwattanii booda Admin dubbisaa.\n"
+            f"• TeleBirr: `0913701367` (Elias Fikadu)\n"
+            f"• CBE: `1000270143788`\n\n"
+            f"User ID keessan kanaan Adminitti ergaa: `{user_id}`"
+        )
+        bot.send_message(message.chat.id, msg, parse_mode='Markdown')
+        
+    elif text == "📸 Print from Screenshot":
+        user_states[user_id] = 'WAITING_SCREENSHOT'
+        bot.send_message(message.chat.id, "📥 **Maaloo amma screenshot Fayda ID (Fuula duraa fi duubaa wal bira jiru) ergaa.**", parse_mode='Markdown')
+        
+    elif text in ["📄 Print from PDF", "📦 Bulk Screenshot (auto-match)", "🔢 Print from OTP", "🖨️ Group to A4"]:
+        bot.send_message(message.chat.id, f"⚙️ Tajaajilli **{text}** yeroof qophii irra jira. Maaloo `Print from Screenshot` fayyadamaa.")
 
-def verify_tx_id(message):
-    user_id = message.from_user.id
-    lang = user_lang.get(user_id, 'en')
-    tx_id = message.text.strip()
-    pending = user_pending_payments.get(user_id)
-    
-    if not pending: return
+# ==================== ADMIN ADD CREDIT COMMAND ====================
+# Admin dhuunfaatti kireditii guutuuf: /add UserID Kireditii
+@bot.message_handler(commands=['add'])
+def add_credit_manual(message):
+    if message.from_user.id != ADMIN_CHAT_ID: return
+    try:
+        parts = message.text.split()
+        target_user = int(parts[1])
+        credits_to_add = int(parts[2])
+        user_balances[target_user] = user_balances.get(target_user, 0) + credits_to_add
+        bot.reply_to(message, f"✅ User `{target_user}` tiif kireditii {credits_to_add} feeteetta!")
+        bot.send_message(target_user, f"🎉 **Kafaltiin keessan mirkanaayeera! Kireditiin {credits_to_add} dabalameera.**", parse_mode='Markdown')
+    except:
+        bot.reply_to(message, "❌ Haala kanaan barreessi: `/add UserID Kireditii`")
 
-    if len(tx_id) >= 6:  # Fake transaction verification check
-        user_balances[user_id] = user_balances.get(user_id, 0) + pending['credits']
-        bot.send_message(message.chat.id, MESSAGES[lang]['tx_success'].format(credits=pending['credits']), parse_mode='HTML')
-        del user_pending_payments[user_id]
-    else:
-        bot.reply_to(message, "❌ Transaction ID sirrii miti. Maaloo /topup jedhaa irra deebiaa yaalaa.")
-
-# --- STEP 4: IMAGE PROCESSING (FRONT & BACK COUPLING WITH MIRROR) ---
+# ==================== CORE ID PROCESSING ENGINE ====================
 @bot.message_handler(content_types=['photo'])
-def handle_id_photos(message):
+def process_fayda_image(message):
     user_id = message.from_user.id
-    lang = user_lang.get(user_id, 'en')
     
-    # SYSTEM BUSY CHEK GOCHUU (Kireditii osoo hin hirin deebisa)
-    if SYSTEM_IS_BUSY:
-        bot.send_message(message.chat.id, MESSAGES[lang]['system_busy'], parse_mode='HTML')
+    if not check_must_join(user_id):
+        send_join_message(message.chat.id)
         return
 
-    # KIREDITII CHEK GOCHUU
-    balance = user_balances.get(user_id, 0)
-    if balance <= 0:
-        bot.send_message(message.chat.id, MESSAGES[lang]['no_credit'], parse_mode='HTML')
+    if user_balances.get(user_id, 0) <= 0:
+        bot.send_message(message.chat.id, "⚠️ **Kireditii gahaa hin qabdhan! Maaloo kireditii bitachuuf /topup jedhaa.**", parse_mode='Markdown')
         return
 
-    state = user_states.get(user_id, 'WAITING_FRONT')
+    bot.send_message(message.chat.id, "⚙️ **Kaardii keessan qulqullinaan piriintiif ijaarbaa jira... Maaloo obsaan eegaa.**", parse_mode='Markdown')
     
-    # Suuraa buufachuu
-    file_info = bot.get_file(message.photo[-1].file_id)
-    downloaded_file = bot.download_file(file_info.file_path)
-    img = Image.open(io.BytesIO(downloaded_file))
-    
-    if state == 'WAITING_FRONT':
-        if user_id not in user_images: user_images[user_id] = {}
-        user_images[user_id]['front'] = img
-        user_states[user_id] = 'WAITING_BACK'
-        bot.send_message(message.chat.id, MESSAGES[lang]['send_back'], parse_mode='HTML')
+    try:
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
         
-    elif state == 'WAITING_BACK':
-        user_images[user_id]['back'] = img
-        tmpl = user_template.get(user_id, 'T-1')
-        bot.send_message(message.chat.id, MESSAGES[lang]['processing'].format(tmpl=tmpl), parse_mode='HTML')
+        full_img = Image.open(io.BytesIO(downloaded_file))
+        W, H = full_img.size
         
-        try:
-            # Hojii eegaluuf kireditii hir'isuu
-            user_balances[user_id] -= 1
-            
-            # Canvas Guddaa A4 piriintiif qophaa'e uumuu (Width: 2480, Height: 3508)
-            canvas = Image.new('RGB', (2480, 3508), '#FFFFFF')
-            
-            # Kaardii duwwaa (Template Background) banuu
-            # File templates kunniin folder koodiin kun jiru keessa jiraachuu qabu!
-            try:
-                if tmpl == 'T-8':
-                    front_bg = Image.open('t8_template.jpg')
-                else:
-                    front_bg = Image.open('t1_template.jpg')
-                back_bg = Image.open('t1_template.jpg')  # Gala dugdaa static ta'e
-            except FileNotFoundError:
-                # Yoo failiin templates dhabame canvas duwwaa fayyadama
-                front_bg = Image.new('RGB', (1011, 638), '#E0E0E0')
-                back_bg = Image.new('RGB', (1011, 638), '#E0E0E0')
+        # Screenshot walakkaan qoruu (Left & Right split)
+        if W > H:
+            front_side = full_img.crop((0, 0, int(W * 0.5), H))
+            back_side = full_img.crop((int(W * 0.5), 0, W, H))
+        else:
+            front_side = full_img
+            back_side = full_img
+        
+        # Hamma PVC standard kaardii (1011x638)
+        card_w, card_h = 1011, 638
+        front_final = front_side.resize((card_w, card_h), Image.Resampling.LANCZOS)
+        back_final = back_side.resize((card_w, card_h), Image.Resampling.LANCZOS)
+        
+        # MIRROR ON (🪞 Piriintiif dahuu)
+        front_final = ImageOps.mirror(front_final)
+        back_final = ImageOps.mirror(back_final)
+        
+        # Canvas A4 Guddaa (2480x3508 pixels)
+        canvas = Image.new('RGB', (2480, 3508), '#FFFFFF')
+        
+        # A4 irratti bitaa fi mirga hiriirsuu (Dugda bitaatti, Fuula dura mirgatti)
+        canvas.paste(back_final, (150, 200))      
+        canvas.paste(front_final, (1250, 200))    
+        
+        bio = io.BytesIO()
+        canvas.save(bio, 'JPEG', quality=100)
+        bio.seek(0)
+        
+        user_balances[user_id] -= 1
+        
+        caption_msg = f"✅ **Fayda ID Processed Successfully!**\n• Credit Left: {user_balances[user_id]}\n\n🪞 Mirror Layout: **ON (Ready for PVC Print)**"
+        bot.send_photo(message.chat.id, bio, caption=caption_msg, parse_mode='Markdown', reply_markup=get_main_keyboard())
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Dogoggora: {str(e)}", reply_markup=get_main_keyboard())
 
-            # Kaardii lamaan hamma (size) piriintiif qorree wal-qixxeessuu (1011x638 ID standard)
-            card_w, card_h = 1011, 638
-            front_final = front_bg.resize((card_w, card_h))
-            back_final = back_bg.resize((card_w, card_h))
-            
-            # MIRROR LAYOUT AUTOMATIC (ON) - Piriintii Kaardii Piraastikaaf akka dahuu godhu
-            front_final = ImageOps.mirror(front_final)
-            back_final = ImageOps.mirror(back_final)
-            
-            # Canvas gubbaa irratti wal-bira kaahuu (Gala dugdaa bitaatti, Fuula dura mirgatti)
-            canvas.paste(back_final, (150, 200))
-            canvas.paste(front_final, (1250, 200))
-            
-            # Suuraa xumurame bifa kireditii qulqulluun (100% Quality) mamilaaf erguu
-            bio = io.BytesIO()
-            canvas.save(bio, 'JPEG', quality=100)
-            bio.seek(0)
-            
-            bot.send_photo(message.chat.id, bio, caption=f"✅ <b>ID Processed Successfully!</b>\n🎨 Template: {tmpl}\n🪞 Mirror Layout: <b>ON (Ready for Print)</b>", parse_mode='HTML')
-            
-            # Reset user state for next job
-            user_states[user_id] = 'WAITING_FRONT'
-            user_images[user_id] = {}
-            
-        except Exception as e:
-            bot.reply_to(message, f"❌ Error: {str(e)}")
-            user_states[user_id] = 'WAITING_FRONT'
-
-# --- STEP 5: FLASK KEEPER FOR RENDER DEPLOYMENT ---
+# Web Server Render irratti active akka ta'uuf
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Fayda Converter Bot is active and running!"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+def home(): return "Active"
+def run_flask(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
 if __name__ == "__main__":
-    # Web server thread irratti jalqabsiisuu (Render irratti akka hin dhumneef)
     t = threading.Thread(target=run_flask)
     t.start()
-    
-    print("Bot is starting polling...")
-    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    bot.infinity_polling(timeout=15, long_polling_timeout=10)
